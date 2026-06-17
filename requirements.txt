@@ -1,0 +1,4 @@
+oracledb
+pyautogui
+pywin32
+python-dotenv
