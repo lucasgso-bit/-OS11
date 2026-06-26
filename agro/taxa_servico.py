@@ -1,6 +1,7 @@
 import time
 
 import pyautogui
+import win32con
 import win32gui
 
 from indetificador import focar_janela_por_titulo
@@ -20,6 +21,131 @@ from windows.window_utils import (
 )
 
 
+TITULO_AGRO = "AGRO-AG"
+CLASSE_AGRO = "TVsMenu"
+
+TITULO_TAXA_SERVICO = "Cobrança de Taxas de Serviço"
+CLASSE_TAXA_SERVICO = "TFCobTxServico"
+
+PESQUISA_TAXA_SERVICO = "cobrança taxas de serviço"
+
+
+def encontrar_tela_agro_principal():
+    hwnd_encontrado = None
+
+    def procurar(hwnd, _):
+        nonlocal hwnd_encontrado
+
+        if hwnd_encontrado:
+            return
+
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+
+        titulo = win32gui.GetWindowText(hwnd).strip()
+        classe = win32gui.GetClassName(hwnd).strip()
+
+        if TITULO_AGRO in titulo and classe == CLASSE_AGRO:
+            hwnd_encontrado = hwnd
+
+    win32gui.EnumWindows(procurar, None)
+
+    return hwnd_encontrado
+
+
+def focar_tela_agro_principal(timeout=10):
+    inicio = time.time()
+
+    while time.time() - inicio < timeout:
+        hwnd = encontrar_tela_agro_principal()
+
+        if hwnd:
+            try:
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    time.sleep(0.5)
+                else:
+                    win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                    time.sleep(0.2)
+
+                win32gui.BringWindowToTop(hwnd)
+                time.sleep(0.2)
+
+                win32gui.SetForegroundWindow(hwnd)
+                time.sleep(0.4)
+
+                hwnd_ativo = win32gui.GetForegroundWindow()
+                titulo_ativo = win32gui.GetWindowText(hwnd_ativo).strip()
+                classe_ativo = win32gui.GetClassName(hwnd_ativo).strip()
+
+                print("Janela ativa:", titulo_ativo, "| Classe:", classe_ativo)
+
+                if hwnd_ativo == hwnd or classe_ativo == CLASSE_AGRO:
+                    return hwnd
+
+            except Exception as erro:
+                print("Erro ao focar AGRO-AG sem minimizar:")
+                print(erro)
+
+        time.sleep(0.3)
+
+    return None
+
+
+def pesquisar_taxa_servico_ctrl_f11(timeout=10):
+    inicio = time.time()
+
+    while time.time() - inicio < timeout:
+        hwnd_agro = encontrar_tela_agro_principal()
+
+        if not hwnd_agro:
+            print("Janela AGRO-AG ainda não encontrada.")
+            time.sleep(0.3)
+            continue
+
+        hwnd_pesquisa = encontrar_controle_por_classe_instancia(
+            hwnd_agro,
+            "TLabeledEdit",
+            1,
+        )
+
+        if hwnd_pesquisa:
+            print("Campo de pesquisa TLabeledEdit encontrado.")
+            print("HWND campo pesquisa:", hwnd_pesquisa)
+
+            clicar_controle(hwnd_pesquisa)
+            time.sleep(0.2)
+
+            print("Digitando pesquisa:", PESQUISA_TAXA_SERVICO)
+
+            setar_texto_controle(hwnd_pesquisa, "")
+            time.sleep(0.2)
+
+            setar_texto_controle(hwnd_pesquisa, PESQUISA_TAXA_SERVICO)
+            time.sleep(0.5)
+
+            try:
+                texto_digitado = win32gui.GetWindowText(hwnd_pesquisa).strip()
+                print("Texto atual no campo de pesquisa:", texto_digitado)
+            except Exception:
+                pass
+
+            print("Selecionando rotina encontrada com DOWN + ENTER...")
+
+            pyautogui.press("down")
+            time.sleep(0.3)
+
+            pyautogui.press("enter")
+            time.sleep(1.5)
+
+            return True
+
+        time.sleep(0.2)
+
+    print("Campo TLabeledEdit INSTANCE 1 não encontrado na tela AGRO-AG.")
+    return False
+
+
 def encontrar_tela_taxa_servico():
     hwnd_encontrado = None
 
@@ -35,7 +161,7 @@ def encontrar_tela_taxa_servico():
         titulo = win32gui.GetWindowText(hwnd).strip()
         classe = win32gui.GetClassName(hwnd).strip()
 
-        if titulo == "Cobrança de Taxas de Serviço" and classe == "TFCobTxServico":
+        if titulo == TITULO_TAXA_SERVICO and classe == CLASSE_TAXA_SERVICO:
             hwnd_encontrado = hwnd
 
     win32gui.EnumWindows(procurar, None)
@@ -59,6 +185,134 @@ def focar_tela_taxa_servico(timeout=5):
     return None
 
 
+def obter_textos_janela(hwnd):
+    textos = []
+
+    try:
+        texto = win32gui.GetWindowText(hwnd).strip()
+
+        if texto:
+            textos.append(texto)
+
+    except Exception:
+        pass
+
+    def procurar_filhos(hwnd_filho, _):
+        try:
+            texto_filho = win32gui.GetWindowText(hwnd_filho).strip()
+
+            if texto_filho:
+                textos.append(texto_filho)
+
+        except Exception:
+            pass
+
+    try:
+        win32gui.EnumChildWindows(hwnd, procurar_filhos, None)
+    except Exception:
+        pass
+
+    return textos
+
+
+def janela_contem_texto(hwnd, textos_procurados):
+    textos_janela = obter_textos_janela(hwnd)
+    texto_completo = " ".join(textos_janela).lower()
+
+    for texto in textos_procurados:
+        if texto.lower() in texto_completo:
+            return True
+
+    return False
+
+
+def encontrar_janela_processamento_taxa():
+    hwnd_encontrado = None
+
+    textos_processamento = (
+        "processando taxas de serviço",
+        "aguarde",
+    )
+
+    def procurar_top_level(hwnd, _):
+        nonlocal hwnd_encontrado
+
+        if hwnd_encontrado:
+            return
+
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+
+        if janela_contem_texto(hwnd, textos_processamento):
+            hwnd_encontrado = hwnd
+
+    win32gui.EnumWindows(procurar_top_level, None)
+
+    if hwnd_encontrado:
+        return hwnd_encontrado
+
+    hwnd_taxa = encontrar_tela_taxa_servico()
+
+    if not hwnd_taxa:
+        return None
+
+    def procurar_filhos_taxa(hwnd_filho, _):
+        nonlocal hwnd_encontrado
+
+        if hwnd_encontrado:
+            return
+
+        if not win32gui.IsWindowVisible(hwnd_filho):
+            return
+
+        if janela_contem_texto(hwnd_filho, textos_processamento):
+            hwnd_encontrado = hwnd_filho
+
+    try:
+        win32gui.EnumChildWindows(hwnd_taxa, procurar_filhos_taxa, None)
+    except Exception:
+        pass
+
+    return hwnd_encontrado
+
+
+def aguardar_processamento_taxa_finalizar(timeout_aparecer=5, timeout_finalizar=300):
+    print("Verificando se apareceu tela de processamento da taxa...")
+
+    inicio_aparecer = time.time()
+    hwnd_processamento = None
+
+    while time.time() - inicio_aparecer < timeout_aparecer:
+        hwnd_processamento = encontrar_janela_processamento_taxa()
+
+        if hwnd_processamento:
+            break
+
+        time.sleep(0.2)
+
+    if not hwnd_processamento:
+        print("Tela de processamento da taxa não apareceu.")
+        return True
+
+    print("Tela de processamento da taxa encontrada. Aguardando finalizar...")
+    print("HWND processamento:", hwnd_processamento)
+
+    inicio_finalizar = time.time()
+
+    while time.time() - inicio_finalizar < timeout_finalizar:
+        hwnd_processamento = encontrar_janela_processamento_taxa()
+
+        if not hwnd_processamento:
+            print("Processamento da taxa finalizado.")
+            time.sleep(0.8)
+            return True
+
+        time.sleep(1)
+
+    print("Tempo limite aguardando processamento da taxa finalizar.")
+    return False
+
+
 def aguardar_tela_taxa_ativa(timeout=30):
     inicio = time.time()
 
@@ -67,7 +321,7 @@ def aguardar_tela_taxa_ativa(timeout=30):
         titulo = win32gui.GetWindowText(hwnd).strip()
         classe = win32gui.GetClassName(hwnd).strip()
 
-        if titulo == "Cobrança de Taxas de Serviço" and classe == "TFCobTxServico":
+        if titulo == TITULO_TAXA_SERVICO and classe == CLASSE_TAXA_SERVICO:
             time.sleep(0.5)
             return True
 
@@ -81,7 +335,7 @@ def aguardar_tela_taxa_ativa(timeout=30):
             titulo_ativo = win32gui.GetWindowText(hwnd_ativo).strip()
             classe_ativo = win32gui.GetClassName(hwnd_ativo).strip()
 
-            if titulo_ativo == "Cobrança de Taxas de Serviço" and classe_ativo == "TFCobTxServico":
+            if titulo_ativo == TITULO_TAXA_SERVICO and classe_ativo == CLASSE_TAXA_SERVICO:
                 time.sleep(0.5)
                 return True
 
@@ -183,8 +437,12 @@ def preparar_consulta_servico():
     print("Enviando CTRL + P...")
     pyautogui.hotkey("ctrl", "p")
 
-    print("Aguardando 3 segundos após CTRL + P...")
-    time.sleep(3)
+    if not aguardar_processamento_taxa_finalizar(
+        timeout_aparecer=5,
+        timeout_finalizar=300,
+    ):
+        print("Processamento após CTRL + P não finalizou.")
+        return False
 
     confirmar_todas_atencoes(timeout_primeira=1.5)
 
@@ -261,9 +519,16 @@ def processar_servico_ate_aviso(max_tentativas=300):
 
         enviar_alt_g()
 
-        print("Aguardando tela após ALT + G...")
-        time.sleep(1)
+        print("Aguardando processamento após ALT + G...")
 
+        if not aguardar_processamento_taxa_finalizar(
+            timeout_aparecer=5,
+            timeout_finalizar=300,
+        ):
+            print("Processamento após ALT + G não finalizou.")
+            return False
+
+        print("Aguardando alerta após processamento...")
         hwnd_alerta, titulo_alerta, classe_alerta = aguardar_alerta_32770(timeout=8)
 
         if not hwnd_alerta:
@@ -383,28 +648,37 @@ def abrir_tela_taxa_servico():
         print("Tela de taxa de serviço já está aberta. Reutilizando tela focada.")
         return True
 
-    focar_janela_por_titulo("AGRO-AG")
-    time.sleep(0.6)
+    print("Focando na tela AGRO-AG sem minimizar...")
 
-    print("Abrindo tela de taxa de serviço...")
+    hwnd_agro = focar_tela_agro_principal(timeout=10)
 
-    pyautogui.hotkey("alt", "a")
-    time.sleep(0.3)
+    if not hwnd_agro:
+        print("Não foi possível focar a tela AGRO-AG.")
+        return False
 
-    pyautogui.press("right")
-    time.sleep(0.2)
+    time.sleep(0.8)
 
-    for _ in range(3):
-        pyautogui.press("down")
-        time.sleep(0.2)
+    print("Abrindo pesquisa de rotina pelo CTRL + F11...")
 
-    pyautogui.press("right")
-    time.sleep(0.2)
+    pyautogui.keyDown("ctrl")
+    time.sleep(0.15)
+    pyautogui.press("f11")
+    time.sleep(0.15)
+    pyautogui.keyUp("ctrl")
 
-    pyautogui.press("enter")
-    time.sleep(1)
+    time.sleep(1.5)
 
-    if confirmar_todas_atencoes(timeout_primeira=1.2):
-        print("Atenção/Erro/Aviso apareceu ao abrir taxa de serviço.")
+    confirmar_todas_atencoes(timeout_primeira=1.2)
 
-    return bool(focar_tela_taxa_servico(timeout=6))
+    if not pesquisar_taxa_servico_ctrl_f11(timeout=10):
+        print("Erro ao pesquisar/abrir rotina de taxa de serviço pelo CTRL + F11.")
+        return False
+
+    confirmar_todas_atencoes(timeout_primeira=1.5)
+
+    if focar_tela_taxa_servico(timeout=10):
+        print("Tela Cobrança de Taxas de Serviço aberta com sucesso.")
+        return True
+
+    print("Erro ao abrir/focar a tela Cobrança de Taxas de Serviço pelo CTRL + F11.")
+    return False
