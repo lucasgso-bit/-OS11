@@ -4,7 +4,6 @@ import pyautogui
 import win32con
 import win32gui
 
-from indetificador import focar_janela_por_titulo
 from windows.alerts import (
     aguardar_alerta_32770,
     aviso_eh_final,
@@ -27,7 +26,7 @@ CLASSE_AGRO = "TVsMenu"
 TITULO_TAXA_SERVICO = "Cobrança de Taxas de Serviço"
 CLASSE_TAXA_SERVICO = "TFCobTxServico"
 
-PESQUISA_TAXA_SERVICO = "cobrança taxas de serviço"
+PESQUISA_TAXA_SERVICO = "cobrança taxas de serviços"
 
 
 def encontrar_tela_agro_principal():
@@ -92,7 +91,7 @@ def focar_tela_agro_principal(timeout=10):
     return None
 
 
-def pesquisar_taxa_servico_ctrl_f11(timeout=10):
+def pesquisar_taxa_servico_ctrl_f11(timeout=15):
     inicio = time.time()
 
     while time.time() - inicio < timeout:
@@ -109,38 +108,54 @@ def pesquisar_taxa_servico_ctrl_f11(timeout=10):
             1,
         )
 
-        if hwnd_pesquisa:
-            print("Campo de pesquisa TLabeledEdit encontrado.")
-            print("HWND campo pesquisa:", hwnd_pesquisa)
-
-            clicar_controle(hwnd_pesquisa)
+        if not hwnd_pesquisa:
+            print("Campo TLabeledEdit INSTANCE 1 ainda não encontrado.")
             time.sleep(0.2)
+            continue
 
-            print("Digitando pesquisa:", PESQUISA_TAXA_SERVICO)
+        print("Campo de pesquisa TLabeledEdit encontrado.")
+        print("HWND campo pesquisa:", hwnd_pesquisa)
 
-            setar_texto_controle(hwnd_pesquisa, "")
-            time.sleep(0.2)
+        clicar_controle(hwnd_pesquisa)
+        time.sleep(0.4)
 
-            setar_texto_controle(hwnd_pesquisa, PESQUISA_TAXA_SERVICO)
-            time.sleep(0.5)
+        print("Limpando campo de pesquisa...")
+        setar_texto_controle(hwnd_pesquisa, "")
+        time.sleep(0.4)
 
-            try:
-                texto_digitado = win32gui.GetWindowText(hwnd_pesquisa).strip()
-                print("Texto atual no campo de pesquisa:", texto_digitado)
-            except Exception:
-                pass
+        print("Digitando pesquisa:", PESQUISA_TAXA_SERVICO)
+        setar_texto_controle(hwnd_pesquisa, PESQUISA_TAXA_SERVICO)
+        time.sleep(0.8)
 
-            print("Selecionando rotina encontrada com DOWN + ENTER...")
+        try:
+            texto_digitado = win32gui.GetWindowText(hwnd_pesquisa).strip()
+            print("Texto atual no campo de pesquisa:", texto_digitado)
+        except Exception:
+            print("Não foi possível validar texto do campo. Vai seguir mesmo assim.")
 
-            pyautogui.press("down")
-            time.sleep(0.3)
+        print("Selecionando rotina encontrada com DOWN + ENTER...")
 
-            pyautogui.press("enter")
-            time.sleep(1.5)
+        pyautogui.press("down")
+        time.sleep(0.3)
 
+        pyautogui.press("enter")
+        time.sleep(2)
+
+        print("Validando se abriu a tela correta...")
+
+        if focar_tela_taxa_servico(timeout=10):
+            print("Tela correta aberta:", TITULO_TAXA_SERVICO)
             return True
 
-        time.sleep(0.2)
+        hwnd_ativo = win32gui.GetForegroundWindow()
+        titulo_ativo = win32gui.GetWindowText(hwnd_ativo).strip()
+        classe_ativo = win32gui.GetClassName(hwnd_ativo).strip()
+
+        print("A tela correta não abriu.")
+        print("Janela ativa atual:", titulo_ativo, "| Classe:", classe_ativo)
+        print("Provavelmente selecionou rotina errada na pesquisa.")
+
+        return False
 
     print("Campo TLabeledEdit INSTANCE 1 não encontrado na tela AGRO-AG.")
     return False
@@ -276,13 +291,52 @@ def encontrar_janela_processamento_taxa():
     return hwnd_encontrado
 
 
+def confirmar_atencao_se_estiver_aberta(timeout=0.2):
+    hwnd_alerta, titulo_alerta, classe_alerta = aguardar_alerta_32770(timeout=timeout)
+
+    if not hwnd_alerta:
+        return False
+
+    titulo_normalizado = str(titulo_alerta or "").strip().lower()
+    classe_normalizada = str(classe_alerta or "").strip()
+
+    if not titulo_normalizado.startswith("aten"):
+        print("Alerta encontrado, mas não é Atenção. Não vou confirmar aqui.")
+        print("Título:", titulo_alerta)
+        print("Classe:", classe_alerta)
+        print("HWND:", hwnd_alerta)
+        return False
+
+    print("Tela Atenção detectada durante espera/processamento.")
+    print("Título:", titulo_alerta)
+    print("Classe:", classe_normalizada)
+    print("HWND:", hwnd_alerta)
+
+    print("Enviando ENTER imediato, sem refocar...")
+    pyautogui.press("enter")
+    time.sleep(0.7)
+
+    if aguardar_janela_sumir(hwnd_alerta, timeout=1.2):
+        print("Tela Atenção fechada com ENTER imediato.")
+        return True
+
+    print("ENTER imediato não fechou. Tentando função confirmar_alerta_somente_enter...")
+    return confirmar_alerta_somente_enter(hwnd_alerta)
+
+
 def aguardar_processamento_taxa_finalizar(timeout_aparecer=5, timeout_finalizar=300):
     print("Verificando se apareceu tela de processamento da taxa...")
+
+    confirmar_atencao_se_estiver_aberta(timeout=0.2)
 
     inicio_aparecer = time.time()
     hwnd_processamento = None
 
     while time.time() - inicio_aparecer < timeout_aparecer:
+        if confirmar_atencao_se_estiver_aberta(timeout=0.2):
+            print("Atenção confirmada durante espera do processamento aparecer.")
+            return True
+
         hwnd_processamento = encontrar_janela_processamento_taxa()
 
         if hwnd_processamento:
@@ -292,6 +346,7 @@ def aguardar_processamento_taxa_finalizar(timeout_aparecer=5, timeout_finalizar=
 
     if not hwnd_processamento:
         print("Tela de processamento da taxa não apareceu.")
+        confirmar_atencao_se_estiver_aberta(timeout=0.5)
         return True
 
     print("Tela de processamento da taxa encontrada. Aguardando finalizar...")
@@ -300,11 +355,18 @@ def aguardar_processamento_taxa_finalizar(timeout_aparecer=5, timeout_finalizar=
     inicio_finalizar = time.time()
 
     while time.time() - inicio_finalizar < timeout_finalizar:
+        if confirmar_atencao_se_estiver_aberta(timeout=0.2):
+            print("Atenção confirmada durante processamento da taxa.")
+            return True
+
         hwnd_processamento = encontrar_janela_processamento_taxa()
 
         if not hwnd_processamento:
             print("Processamento da taxa finalizado.")
             time.sleep(0.8)
+
+            confirmar_atencao_se_estiver_aberta(timeout=0.8)
+
             return True
 
         time.sleep(1)
@@ -317,6 +379,8 @@ def aguardar_tela_taxa_ativa(timeout=30):
     inicio = time.time()
 
     while time.time() - inicio < timeout:
+        confirmar_atencao_se_estiver_aberta(timeout=0.2)
+
         hwnd = win32gui.GetForegroundWindow()
         titulo = win32gui.GetWindowText(hwnd).strip()
         classe = win32gui.GetClassName(hwnd).strip()
@@ -349,6 +413,7 @@ def fechar_tela_taxa_servico_ctrl_f4(timeout=2):
 
     if not hwnd_taxa:
         print("Tela Cobrança de Taxas de Serviço não está aberta. Nada para fechar.")
+        confirmar_atencao_se_estiver_aberta(timeout=0.5)
         return True
 
     print("Fechando Cobrança de Taxas de Serviço com CTRL + F4...")
@@ -512,10 +577,14 @@ def processar_servico_ate_aviso(max_tentativas=300):
 
             time.sleep(1)
 
+        confirmar_atencao_se_estiver_aberta(timeout=0.2)
+
         enviar_ctrl_espaco()
 
         print("Aguardando marcação da linha antes do ALT + G...")
         time.sleep(1.5)
+
+        confirmar_atencao_se_estiver_aberta(timeout=0.2)
 
         enviar_alt_g()
 
@@ -670,7 +739,7 @@ def abrir_tela_taxa_servico():
 
     confirmar_todas_atencoes(timeout_primeira=1.2)
 
-    if not pesquisar_taxa_servico_ctrl_f11(timeout=10):
+    if not pesquisar_taxa_servico_ctrl_f11(timeout=15):
         print("Erro ao pesquisar/abrir rotina de taxa de serviço pelo CTRL + F11.")
         return False
 
